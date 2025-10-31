@@ -474,15 +474,25 @@ def _get_request_batch_size(request):
 
 @app.get("/v1/models")
 async def get_models():
-    prefill_server = lb.prefill_urls[0]  # Get the first prefill server
     async with aiohttp.ClientSession() as session:
+        num_prefill_server = len(lb.prefill_urls)
         try:
-            response = await session.get(f"{prefill_server}/v1/models")
-            if response.status != 200:
-                raise HTTPException(
-                    status_code=response.status,
-                    detail=f"Prefill server error: Status {response.status}",
-                )
-            return ORJSONResponse(content=await response.json())
+            responses = []
+            for server in chain(lb.prefill_urls, lb.decode_urls):
+                response = await session.get(f"{server}/v1/models")
+                responses.append(response)
+            for i, response in enumerate(responses):
+                if response.status != 200:
+                    if i < num_prefill_server:
+                        raise HTTPException(
+                            status_code=response.status,
+                            detail=f"Prefill server error: Status {response.status}",
+                        )
+                    elif i >= num_prefill_server:
+                        raise HTTPException(
+                            status_code=response.status,
+                            detail=f"Decode server error: Status {response.status}",
+                        )
+            return ORJSONResponse(content=await responses[0].json())
         except Exception as e:
             raise HTTPException(status_code=500, detail=str(e))
